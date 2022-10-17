@@ -23,6 +23,53 @@ static bool IsOrdered(IR::AccType acctype) {
     return acctype == IR::AccType::ORDERED || acctype == IR::AccType::ORDEREDRW || acctype == IR::AccType::LIMITEDORDERED;
 }
 
+template<std::size_t bit_size>
+void EmitInlineReadMemory(oaknut::CodeGenerator& code, EmitContext& ctx, IR::Inst* inst) {
+    auto args = ctx.reg_alloc.GetArgumentInfo(inst);
+    auto Waddr = ctx.reg_alloc.ReadW(args[1]);
+    auto to = ctx.reg_alloc.WriteReg<std::max<std::size_t>(bit_size, 32)>(inst);
+    RegAlloc::Realize(Waddr, to);
+    const bool ordered = IsOrdered(args[2].GetImmediateAccType());
+
+    code.MOV(Xscratch0, ctx.conf.fastmem_addr);
+    if constexpr (bit_size == 8)
+        code.LDRB(to, Xscratch0, Waddr, oaknut::IndexExt::UXTW);
+    else if constexpr (bit_size == 16)
+        code.LDRH(to, Xscratch0, Waddr, oaknut::IndexExt::UXTW);
+    else if constexpr (bit_size == 32 || bit_size == 64)
+        code.LDR(to, Xscratch0, Waddr, oaknut::IndexExt::UXTW);
+    else 
+        static_assert(bit_size == 8 || bit_size == 16 || bit_size == 32 || bit_size == 64);
+
+    if (ordered)
+        code.DMB(oaknut::BarrierOp::ISH);
+}
+
+template<std::size_t bit_size>
+void EmitInlineWriteMemory(oaknut::CodeGenerator& code, EmitContext& ctx, IR::Inst* inst) {
+    auto args = ctx.reg_alloc.GetArgumentInfo(inst);
+    auto Waddr = ctx.reg_alloc.ReadW(args[1]);
+    auto value = ctx.reg_alloc.ReadReg<std::max<std::size_t>(bit_size, 32)>(args[2]);
+    RegAlloc::Realize(Waddr, value);
+    const bool ordered = IsOrdered(args[3].GetImmediateAccType());
+
+    code.MOV(Xscratch0, ctx.conf.fastmem_addr);
+    if (ordered) 
+        code.DMB(oaknut::BarrierOp::ISH);
+
+    if constexpr (bit_size == 8)
+        code.STRB(value, Xscratch0, Waddr, oaknut::IndexExt::UXTW);
+    else if constexpr (bit_size == 16)
+        code.STRH(value, Xscratch0, Waddr, oaknut::IndexExt::UXTW);
+    else if constexpr (bit_size == 32 || bit_size == 64)
+        code.STR(value, Xscratch0, Waddr, oaknut::IndexExt::UXTW);
+    else
+        static_assert(bit_size == 8 || bit_size == 16 || bit_size == 32 || bit_size == 64);
+
+    if (ordered) 
+        code.DMB(oaknut::BarrierOp::ISH);
+}
+
 static void EmitReadMemory(oaknut::CodeGenerator& code, EmitContext& ctx, IR::Inst* inst, LinkTarget fn) {
     auto args = ctx.reg_alloc.GetArgumentInfo(inst);
     ctx.reg_alloc.PrepareForCall(inst, {}, args[1]);
@@ -88,22 +135,34 @@ void EmitIR<IR::Opcode::A32ClearExclusive>(oaknut::CodeGenerator& code, EmitCont
 
 template<>
 void EmitIR<IR::Opcode::A32ReadMemory8>(oaknut::CodeGenerator& code, EmitContext& ctx, IR::Inst* inst) {
-    EmitReadMemory(code, ctx, inst, LinkTarget::ReadMemory8);
+    if(ctx.conf.enable_fastmem)
+        EmitInlineReadMemory<8>(code, ctx, inst);
+    else
+        EmitReadMemory(code, ctx, inst, LinkTarget::ReadMemory8);
 }
 
 template<>
 void EmitIR<IR::Opcode::A32ReadMemory16>(oaknut::CodeGenerator& code, EmitContext& ctx, IR::Inst* inst) {
-    EmitReadMemory(code, ctx, inst, LinkTarget::ReadMemory16);
+    if(ctx.conf.enable_fastmem)
+        EmitInlineReadMemory<16>(code, ctx, inst);
+    else
+        EmitReadMemory(code, ctx, inst, LinkTarget::ReadMemory16);
 }
 
 template<>
 void EmitIR<IR::Opcode::A32ReadMemory32>(oaknut::CodeGenerator& code, EmitContext& ctx, IR::Inst* inst) {
-    EmitReadMemory(code, ctx, inst, LinkTarget::ReadMemory32);
+    if(ctx.conf.enable_fastmem)
+        EmitInlineReadMemory<32>(code, ctx, inst);
+    else
+        EmitReadMemory(code, ctx, inst, LinkTarget::ReadMemory32);
 }
 
 template<>
 void EmitIR<IR::Opcode::A32ReadMemory64>(oaknut::CodeGenerator& code, EmitContext& ctx, IR::Inst* inst) {
-    EmitReadMemory(code, ctx, inst, LinkTarget::ReadMemory64);
+    if(ctx.conf.enable_fastmem)
+        EmitInlineReadMemory<64>(code, ctx, inst);
+    else
+        EmitReadMemory(code, ctx, inst, LinkTarget::ReadMemory64);
 }
 
 template<>
@@ -128,22 +187,34 @@ void EmitIR<IR::Opcode::A32ExclusiveReadMemory64>(oaknut::CodeGenerator& code, E
 
 template<>
 void EmitIR<IR::Opcode::A32WriteMemory8>(oaknut::CodeGenerator& code, EmitContext& ctx, IR::Inst* inst) {
-    EmitWriteMemory(code, ctx, inst, LinkTarget::WriteMemory8);
+    if(ctx.conf.enable_fastmem)
+        EmitInlineWriteMemory<8>(code, ctx, inst);
+    else
+        EmitWriteMemory(code, ctx, inst, LinkTarget::WriteMemory8);
 }
 
 template<>
 void EmitIR<IR::Opcode::A32WriteMemory16>(oaknut::CodeGenerator& code, EmitContext& ctx, IR::Inst* inst) {
-    EmitWriteMemory(code, ctx, inst, LinkTarget::WriteMemory16);
+    if(ctx.conf.enable_fastmem)
+        EmitInlineWriteMemory<16>(code, ctx, inst);
+    else
+        EmitWriteMemory(code, ctx, inst, LinkTarget::WriteMemory16);
 }
 
 template<>
 void EmitIR<IR::Opcode::A32WriteMemory32>(oaknut::CodeGenerator& code, EmitContext& ctx, IR::Inst* inst) {
-    EmitWriteMemory(code, ctx, inst, LinkTarget::WriteMemory32);
+    if(ctx.conf.enable_fastmem)
+        EmitInlineWriteMemory<32>(code, ctx, inst);
+    else
+        EmitWriteMemory(code, ctx, inst, LinkTarget::WriteMemory32);
 }
 
 template<>
 void EmitIR<IR::Opcode::A32WriteMemory64>(oaknut::CodeGenerator& code, EmitContext& ctx, IR::Inst* inst) {
-    EmitWriteMemory(code, ctx, inst, LinkTarget::WriteMemory64);
+    if(ctx.conf.enable_fastmem)
+        EmitInlineWriteMemory<64>(code, ctx, inst);
+    else
+        EmitWriteMemory(code, ctx, inst, LinkTarget::WriteMemory64);
 }
 
 template<>

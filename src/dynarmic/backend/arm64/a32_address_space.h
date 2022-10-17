@@ -82,6 +82,7 @@ private:
         void* isb_raised;
         void* add_ticks;
         void* get_ticks_remaining;
+        oaknut::Label fastmem_ptr;
     } prelude_info;
 };
 

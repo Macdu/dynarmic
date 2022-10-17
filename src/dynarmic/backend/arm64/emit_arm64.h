@@ -86,6 +86,8 @@ struct EmitConfig {
     bool hook_isb;
     bool enable_cycle_counting;
     bool always_little_endian;
+    bool enable_fastmem;
+    u64 fastmem_addr;
 
     FP::FPCR (*descriptor_to_fpcr)(const IR::LocationDescriptor& descriptor);
 

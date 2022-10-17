@@ -306,6 +306,8 @@ EmittedBlockInfo A32AddressSpace::Emit(IR::Block block) {
         .hook_isb = conf.hook_isb,
         .enable_cycle_counting = conf.enable_cycle_counting,
         .always_little_endian = conf.always_little_endian,
+        .enable_fastmem = conf.fastmem_pointer != nullptr,
+        .fastmem_addr = mcl::bit_cast<u64>(conf.fastmem_pointer),
         .descriptor_to_fpcr = [](const IR::LocationDescriptor& location) { return FP::FPCR{A32::LocationDescriptor{location}.FPSCR().Value()}; },
         .state_nzcv_offset = offsetof(A32JitState, cpsr_nzcv),
         .state_fpsr_offset = offsetof(A32JitState, fpsr),
